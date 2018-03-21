@@ -1,34 +1,17 @@
 #pragma once
 
-#include "lib1.h"
+#include <stdbool.h>
+#include <stdint.h>
+typedef uint64_t u64;
+typedef uint32_t u32;
+typedef uint8_t u8;
 
 struct trie;
 
-// Create a trie instance and return a pointer to the new trie.
-  extern struct trie *
-trie_new(void);
+extern struct trie * trie_new(void);
 
-// Destroy a trie instance. Note to free any memory associated with _t_.
-  extern void
-trie_destroy(struct trie * const t);
+extern bool trie_set(struct trie *, u32, u8*);
 
-// "SET" the given _kv_ in _t_.
-// _t_ will make a private copy of _kv_; caller can free _kv_ after the call is returned.
-// Return true on success.
-// Return false if any error happens and the operation did not complete (e.g., no memory).
-  extern bool
-trie_set(struct trie * const t, const struct kv * const kv);
+extern bool trie_get(struct trie *, u32, u8*);
 
-// "DEL" a corresponding key in _t_ if the given _key_ is found.
-// The value part of _key_ is ignored in this function.
-// Return true if the item is found and deleted.
-// Return false if nothing is found and nothing is deleted.
-  extern bool
-trie_del(struct trie * const t, const struct kv * const key);
-
-// "GET" a kv from _t_ if the given _key_ exists.
-// The value part of _key_ is ignored in this function.
-// If found, the result kv is copied into _out_, the pointer to _out_ is also returned.
-// If not found, a NULL-pointer is return and _out_ is kept unchanged.
-  extern struct kv *
-trie_get(struct trie * const t, const struct kv * const key, struct kv * const out);
+extern bool trie_del(struct trie *, u32, u8*);
