@@ -118,10 +118,12 @@ main(int argc, char ** argv)
     struct access * acc = &__workload[i];
     // TODO: the printf here can be removed once you read it
     // the safe use of %s: %.*s takes two arguments: [1] string length, [2] the string
-    if (acc->op != PRT) {
+    /*
+      if (acc->op != PRT) {
       printf("[%s] [%.*s] head %c tail %c\n",
-          __op_map[acc->op], acc->len, acc->key, acc->key[0], acc->key[acc->len - 1]);
-    }
+      __op_map[acc->op], acc->len, acc->key, acc->key[0], acc->key[acc->len - 1]);
+      }
+    */
     switch (acc->op) {
       case SET:
         {
@@ -164,6 +166,7 @@ main(int argc, char ** argv)
           del_y = 0; del_n = 0;
           t0 = time_sec();
         }
+        break;
       default: break;
     }
   }
