@@ -1,0 +1,6 @@
+seqset 0 499999
+seqget 0 499999
+seqget 500000 500010
+rndget 0 499999
+seqdel 0 99999
+rndget 0 499999

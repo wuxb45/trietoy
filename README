@@ -1,3 +1,21 @@
-$ make
+# first, download a sample file at https://raw.githubusercontent.com/dwyl/english-words/master/words.txt
+$ wget https://raw.githubusercontent.com/dwyl/english-words/master/words.txt
 
-$ ./replay.out trace1
+$ make
+$ ./replay.out words.txt <workload1
+
+The parameter is the sample file. Each line in the sample file is a key.
+The index starts from 0 so the first key in the index will be referred as key[0]
+
+The "<workload1" uses the commands in workload1 as the input at stdin.
+Without this "<",  you can input your commands at the terminal.
+
+The format of the commands is as such:
+seqset <first> <last>
+seqget <first> <last>
+seqdel <first> <last>
+rndset <first> <last>
+rndget <first> <last>
+rnddel <first> <last>
+
+Look at workload1 for examples.

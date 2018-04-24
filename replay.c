@@ -7,27 +7,32 @@
 #include <time.h>
 #include "trie.h"
 
-#define SET ((1))
-#define GET ((2))
-#define DEL ((3))
-#define PRT ((4))  // print results
-
 typedef uint64_t u64;
 typedef uint32_t u32;
 typedef uint8_t u8;
 
-struct access {
-  u32 op; // SET/GET/DEL
-  u32 len; // length of the key in bytes
-  u8 * key; // the key;
-};
-
-char __op_map[5][4] = {"???", "SET", "GET", "DEL", "PRT"};
-// END HEAD
-
 // global variables
-static u64 __nr_access = 0;
-static struct access * __workload = NULL;
+static u64 __nr_samples = 0;
+static u8 ** __samples = NULL;
+static u32 * __sizes = NULL;
+
+  static inline u64
+xorshift(const u64 seed)
+{
+  u64 x = seed ? seed : 88172645463325252lu;
+  x ^= x >> 12; // a
+  x ^= x << 25; // b
+  x ^= x >> 27; // c
+  return x * UINT64_C(2685821657736338717);
+}
+static __thread u64 __random_seed_u64 = 0;
+
+  static inline u64
+random_u64(void)
+{
+  __random_seed_u64 = xorshift(__random_seed_u64);
+  return __random_seed_u64;
+}
 
   static u64
 time_nsec(void)
@@ -52,40 +57,23 @@ load_trace(const char * const filename)
   FILE * fin = fopen(filename, "r");
   if (fin == NULL) return false;
   u64 i = 0;
-  while (getline(&buf, &size, fin) >= 4) {
+  // count for lines
+  while (getline(&buf, &size, fin) >= 1) {
     i++;
   }
   rewind(fin);
-  __workload = malloc(sizeof(struct access) * i);
-  __nr_access = i;
+  __samples = malloc(sizeof(char *) * i);
+  __sizes = malloc(sizeof(u32) * i);
+  __nr_samples = i;
+  ssize_t len = 0;
   i = 0;
-  while (getline(&buf, &size, fin) >= 3) {
-    __workload[i].len = 0;
-    __workload[i].key = NULL;
-    if (strncmp(buf, "SET", 3) == 0) {
-      __workload[i].op = SET;
-    } else if (strncmp(buf, "GET", 3) == 0) {
-      __workload[i].op = GET;
-    } else if (strncmp(buf, "DEL", 3) == 0) {
-      __workload[i].op = DEL;
-    } else if (strncmp(buf, "PRT", 3) == 0) {
-      __workload[i].op = PRT;
-      i++;
-      continue; // no key for print
-    } else {
-      __workload[i].op = 0; // invalid op
-      // ignore this line
-      continue;
-    }
-    if (strlen(buf) < 4) continue;
-    char * key = buf + 4;
-    u32 len = strlen(key);
-    if (key[len-1] == '\n') {
-      key[len-1] = '\0'; // remove \newline
+  while ((len = getline(&buf, &size, fin)) >= 1) {
+    if (buf[len-1] == '\n') { // remove trailing '\n'
       len--;
+      buf[len] = '\0';
     }
-    __workload[i].len = len;
-    __workload[i].key = (u8 *)strdup(key);
+    __samples[i] = strdup(buf);
+    __sizes[i] = len;
     i++;
   }
   free(buf);
@@ -97,7 +85,7 @@ load_trace(const char * const filename)
 main(int argc, char ** argv)
 {
   if (argc < 2) {
-    printf("Usage: %s <filename>\n", argv[0]);
+    printf("Usage: %s <samples>; # operations at stdin\n", argv[0]);
     return 0;
   }
   const bool r = load_trace(argv[1]);
@@ -105,75 +93,76 @@ main(int argc, char ** argv)
     printf("load_trace failed\n");
     return 0;
   }
+  printf("number of keys: %lu\n", __nr_samples);
   struct trie * trie = trie_new();
-  u64 set_y = 0; // successful SET
-  u64 set_n = 0; // failed SET (it may fail if there is no enough memory)
-  u64 get_y = 0; // found
-  u64 get_n = 0; // not found
-  u64 del_y = 0; // deleted the key
-  u64 del_n = 0; // nothing is deleted
-  double t0 = time_sec();
 
-  for (u64 i = 0; i < __nr_access; i++) {
-    struct access * acc = &__workload[i];
-    // TODO: the printf here can be removed once you read it
-    // the safe use of %s: %.*s takes two arguments: [1] string length, [2] the string
-    /*
-      if (acc->op != PRT) {
-      printf("[%s] [%.*s] head %c tail %c\n",
-      __op_map[acc->op], acc->len, acc->key, acc->key[0], acc->key[acc->len - 1]);
+  char * buf = NULL;
+  size_t size = 0;
+  while (getline(&buf, &size, stdin) >= 10) {
+    u32 v1 = 0;
+    u32 v2 = 0;
+    sscanf(buf + 7, "%u%u", &v1, &v2);
+    if (v1 >= __nr_samples) v1 = 0;
+    if (v2 >= __nr_samples) v2 = 0;
+    const u32 radius = v2 - v1 + 1;
+    if (!radius) continue;
+    u64 set_y = 0; // successful SET
+    u64 set_n = 0; // failed SET (it may fail if there is no enough memory)
+    u64 get_y = 0; // found
+    u64 get_n = 0; // not found
+    u64 del_y = 0; // deleted the key
+    u64 del_n = 0; // nothing is deleted
+    const double t0 = time_sec();
+    if (memcmp(buf, "seqset", 6) == 0) {
+      for (u32 i = v1; i <= v2; i++) {
+        const bool rset = trie_set(trie, __sizes[i], __samples[i]);
+        if (rset) { set_y++; } else { set_n++; }
       }
-    */
-    switch (acc->op) {
-      case SET:
-        {
-          const bool rset = trie_set(trie, acc->len, acc->key);
-          if (rset) {
-            set_y++;
-          } else {
-            set_n++;
-          }
-        }
-        break;
-      case GET:
-        {
-          const bool rget = trie_get(trie, acc->len, acc->key);
-          if (rget) {
-            get_y++;
-          } else {
-            get_n++;
-          }
-        }
-        break;
-      case DEL:
-        {
-          const bool rdel = trie_del(trie, acc->len, acc->key);
-          if (rdel) {
-            del_y++;
-          } else {
-            del_n++;
-          }
-        }
-        break;
-      case PRT:
-        {
-          const double dt = time_sec() - t0;
-          const double ops = ((double)(set_y + set_n + get_y + get_n + del_y + del_n)) / dt;
-          printf("set y %lu n %lu  get y %lu n %lu  del y %lu n %lu  req_per_sec %.3lf\n",
-              set_y, set_n, get_y, get_n, del_y, del_n, ops);
-          set_y = 0; set_n = 0;
-          get_y = 0; get_n = 0;
-          del_y = 0; del_n = 0;
-          t0 = time_sec();
-        }
-        break;
-      default: break;
+
+    } else if (memcmp(buf, "seqget", 6) == 0) {
+      for (u32 i = v1; i <= v2; i++) {
+        const bool rget = trie_get(trie, __sizes[i], __samples[i]);
+        if (rget) { get_y++; } else { get_n++; }
+      }
+
+    } else if (memcmp(buf, "seqdel", 6) == 0) {
+      for (u32 i = v1; i <= v2; i++) {
+        const bool rdel = trie_del(trie, __sizes[i], __samples[i]);
+        if (rdel) { del_y++; } else { del_n++; }
+      }
+
+    } else if (memcmp(buf, "rndset", 6) == 0) {
+      for (u32 i = v1; i <= v2; i++) {
+        const u32 r = v1 + (random_u64() % radius);
+        const bool rset = trie_set(trie, __sizes[r], __samples[r]);
+        if (rset) { set_y++; } else { set_n++; }
+      }
+
+    } else if (memcmp(buf, "rndget", 6) == 0) {
+      for (u32 i = v1; i <= v2; i++) {
+        const u32 r = v1 + (random_u64() % radius);
+        const bool rget = trie_get(trie, __sizes[r], __samples[r]);
+        if (rget) { get_y++; } else { get_n++; }
+      }
+
+    } else if (memcmp(buf, "rnddel", 6) == 0) {
+      for (u32 i = v1; i <= v2; i++) {
+        const u32 r = v1 + (random_u64() % radius);
+        const bool rdel = trie_del(trie, __sizes[r], __samples[r]);
+        if (rdel) { del_y++; } else { del_n++; }
+      }
+
     }
+    const double dt = time_sec() - t0;
+    const double ops = ((double)(set_y + set_n + get_y + get_n + del_y + del_n)) / dt;
+    printf("%s  set y %lu n %lu  get y %lu n %lu  del y %lu n %lu  req_per_sec %.3lf\n",
+           buf, set_y, set_n, get_y, get_n, del_y, del_n, ops);
   }
   // clean up heap memory
-  for (u64 i = 0; i < __nr_access; i++) {
-    free(__workload[i].key);
+  for (u64 i = 0; i < __nr_samples; i++) {
+    free(__samples[i]);
   }
-  free(__workload);
+  free(__samples);
+  free(__sizes);
   return 0;
 }
